@@ -1,4 +1,4 @@
---Last Update 2025.11.08 by COOKIE
+--Last Update 2026.03.31 by COOKIE
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.std_logic_unsigned.all;
@@ -13,18 +13,18 @@ entity IM_BRG_AXI4S_GPI is
     --Address Control
     i_adr_base                : in  std_logic_vector(G_ADR_WIDTH - 1 downto 0);
     i_adr_mask                : in  std_logic_vector(G_ADR_WIDTH - 1 downto 0);
-    --Read Request
-    i_axis_tdata              : in  std_logic_vector(G_DAT_WIDTH - 1 downto 0);
-    i_axis_tstrb              : in  std_logic_vector((G_DAT_WIDTH - 1) / 8 downto 0);--UnUsed
-    i_axis_tlast              : in  std_logic;
-    i_axis_tvalid             : in  std_logic;
-    o_axis_tready             : out std_logic;
     --Read Return
     o_axis_tdata              : out std_logic_vector(G_DAT_WIDTH - 1 downto 0);
     o_axis_tstrb              : out std_logic_vector((G_DAT_WIDTH - 1) / 8 downto 0);
     o_axis_tlast              : out std_logic;
     o_axis_tvalid             : out std_logic;
     i_axis_tready             : in  std_logic;
+    --Read Request
+    i_axis_tdata              : in  std_logic_vector(G_DAT_WIDTH - 1 downto 0);
+    i_axis_tstrb              : in  std_logic_vector((G_DAT_WIDTH - 1) / 8 downto 0);--UnUsed
+    i_axis_tlast              : in  std_logic;
+    i_axis_tvalid             : in  std_logic;
+    o_axis_tready             : out std_logic;
     --Read address and data port
     o_gpi_vld                 : out std_logic;
     o_gpi_adr                 : out std_logic_vector(G_ADR_WIDTH - 1 downto 0);

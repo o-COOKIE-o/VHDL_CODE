@@ -1,4 +1,4 @@
---Last Update 2025.11.10 by COOKIE
+--Last Update 2026.03.31 by COOKIE
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.std_logic_unsigned.all;
@@ -10,8 +10,8 @@ entity IM_HUB_AXI4S32 is
   generic (
     G_S_CH                    : integer;
     G_M_CH                    : integer;
-    G_FIFO_WRITE_DEPTH        : integer range 16 to 4194304;
-    G_FIFO_MEMORY_TYPE        : string := "auto" --"auto", "block", "distributed", "ultra"
+    G_FIFO_DPT                : integer range 16 to 4194304;
+    G_MEM_TYP                 : integer := 0--0:"auto", 1:"block", 2:"distributed", 3:"ultra"
   );
   port (
     i_axis_s_tdata            : in  slv32_vector    (G_S_CH - 1 downto 0);
@@ -78,8 +78,8 @@ architecture RTL of IM_HUB_AXI4S32 is
   component IM_FIFO_AXI4S
   generic (
     G_DAT_WIDTH               : integer;
-    G_FIFO_WRITE_DEPTH        : integer;
-    G_FIFO_MEMORY_TYPE        : string
+    G_FIFO_DPT                : integer;
+    G_MEM_TYP                 : integer
   );
   port (
     i_axis_tdata              : in  std_logic_vector;
@@ -135,8 +135,8 @@ begin
   u_fifo : IM_FIFO_AXI4S
   generic map(
     G_DAT_WIDTH               => 32,
-    G_FIFO_WRITE_DEPTH        => G_FIFO_WRITE_DEPTH,
-    G_FIFO_MEMORY_TYPE        => G_FIFO_MEMORY_TYPE
+    G_FIFO_DPT                => G_FIFO_DPT,
+    G_MEM_TYP                 => G_MEM_TYP
   )
   port map(
     i_axis_tdata              => mpx_tdata,
