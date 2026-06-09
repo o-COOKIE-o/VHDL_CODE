@@ -1,4 +1,4 @@
---Last Update 2026.04.03 by COOKIE
+--Last Update 2026.06.10 by COOKIE
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.std_logic_unsigned.all;
@@ -8,7 +8,9 @@ entity IM_BRG_I2CM is
   generic (
     G_CLK_FREQ                : real;--i_clk Frequency(MHz)
     G_SCL_FREQ                : real;--o_i2c_scl Frequency(kHz)
-    I_ADR_BASE                : std_logic_vector(31 downto 0)--Aligned 8Byte
+    G_BUF_DPT                 : integer;--Command FIFO Depth
+    G_BUF_FULL                : integer;
+    G_ADR_BASE                : std_logic_vector(31 downto 0)--Aligned 8Byte
   );
   port (
     --I2C PORT
@@ -77,16 +79,17 @@ architecture RTL of IM_BRG_I2CM is
   generic (
     G_WR_DAT_WIDTH            : integer;
     G_WR_DPT                  : integer;
+    G_WR_PFL_TH               : integer;
     G_RD_DAT_WIDTH            : integer
   );
   port (
     i_wr_vld                  : in  std_logic;
     i_wr_dat                  : in  std_logic_vector;
+    o_wr_pfl                  : out std_logic;
 
     o_rd_vld                  : out std_logic;
     o_rd_dat                  : out std_logic_vector;
     i_rd_rdy                  : in  std_logic;
-    o_rd_emp                  : out std_logic;
 
     i_rst                     : in  std_logic;
     i_clk                     : in  std_logic
@@ -147,26 +150,30 @@ architecture RTL of IM_BRG_I2CM is
   port (
     --COMMAND IF
     i_cmd_vld                 : in  std_logic;
+    i_cmd_tag                 : in  std_logic_vector( 7 downto 0);
     i_cmd_cod                 : in  std_logic_vector( 2 downto 0);
+    i_cmd_dat                 : in  std_logic_vector( 7 downto 0);
     i_cmd_rdy                 : in  std_logic;
     --BUFFERD IN
     i_rx_scl                  : in  std_logic;
     i_rx_sda                  : in  std_logic;
     --STATUS
     o_sta_vld                 : out std_logic;--1CLK PULSE
-    o_sta_rw                  : out std_logic;--'0':Write '1':Read
-    o_sta_ack                 : out std_logic;--'0':Ack '1':Nack(Write only)
+    o_sta_tag                 : out std_logic_vector( 7 downto 0);
+    o_sta_cod                 : out std_logic_vector( 2 downto 0);
     o_sta_dat                 : out std_logic_vector( 7 downto 0);--Readback Data(Write) / Read Data(Read)
+    o_sta_ack                 : out std_logic;--'0':Ack '1':Nack(Write only)
+    o_sta_com                 : out std_logic;--'0':NoError '1':Compair Error(Write only)
 
     i_rst                     : in  std_logic;
     i_clk                     : in  std_logic
   );
   end component;
 
-  constant ADR_BASE_GPI       : std_logic_vector(31 downto 0) := I_ADR_BASE + X"0000_0008";
+  constant ADR_BASE_GPI       : std_logic_vector(31 downto 0) := G_ADR_BASE + X"0000_0008";
   constant ADR_MASK_GPI       : std_logic_vector(31 downto 0) := X"FFFF_FFF8";
 
-  constant ADR_BASE_GPO       : std_logic_vector(31 downto 0) := I_ADR_BASE + X"0000_0004";
+  constant ADR_BASE_GPO       : std_logic_vector(31 downto 0) := G_ADR_BASE + X"0000_0004";
   constant ADR_MASK_GPO       : std_logic_vector(31 downto 0) := X"FFFF_FFFC";
 
   signal rreg_8               : std_logic_vector(31 downto 0) := (others => '0');
@@ -182,11 +189,11 @@ architecture RTL of IM_BRG_I2CM is
   signal gpo_stb              : std_logic_vector( 3 downto 0) := (others => '0');
 
   signal txfifo_wvld          : std_logic := '0';
-  signal txfifo_wdat          : std_logic_vector(10 downto 0) := (others => '0');
+  signal txfifo_wdat          : std_logic_vector(18 downto 0) := (others => '0');
+  signal txfifo_wful          : std_logic := '0';
   signal txfifo_rvld          : std_logic := '0';
-  signal txfifo_rdat          : std_logic_vector(10 downto 0) := (others => '0');
+  signal txfifo_rdat          : std_logic_vector(18 downto 0) := (others => '0');
   signal txfifo_rrdy          : std_logic := '0';
-  signal txfifo_remp          : std_logic := '0';
 
   signal io_tx_vld            : std_logic := '0';
   signal io_tx_scl            : std_logic := '0';
@@ -197,31 +204,35 @@ architecture RTL of IM_BRG_I2CM is
   signal io_rx_sda            : std_logic := '0';
 
   signal rx_sta_vld           : std_logic := '0';
-  signal rx_sta_rw            : std_logic := '0';
-  signal rx_sta_ack           : std_logic := '0';
+  signal rx_sta_tag           : std_logic_vector( 7 downto 0) := (others => '0');
+  signal rx_sta_cod           : std_logic_vector( 2 downto 0) := (others => '0');
   signal rx_sta_dat           : std_logic_vector( 7 downto 0) := (others => '0');
+  signal rx_sta_ack           : std_logic := '0';
+  signal rx_sta_com           : std_logic := '0';
 
   signal rxfifo_wvld          : std_logic := '0';
-  signal rxfifo_wdat          : std_logic_vector( 9 downto 0) := (others => '0');
+  signal rxfifo_wdat          : std_logic_vector(20 downto 0) := (others => '0');
   signal rxfifo_rvld          : std_logic := '0';
-  signal rxfifo_rdat          : std_logic_vector( 9 downto 0) := (others => '0');
+  signal rxfifo_rdat          : std_logic_vector(20 downto 0) := (others => '0');
   signal rxfifo_rrdy          : std_logic := '0';
 begin
   txfifo_wvld                 <= gpo_vld when (gpo_stb(1 downto 0) = "11") else '0';
-  txfifo_wdat                 <= gpo_dat(10 downto 0);
+  txfifo_wdat                 <= gpo_dat(18 downto 0);
 
   rxfifo_wvld                 <= rx_sta_vld;
-  rxfifo_wdat(9)              <= rx_sta_rw;
-  rxfifo_wdat(8)              <= rx_sta_ack;
-  rxfifo_wdat(7 downto 0)     <= rx_sta_dat;
+  rxfifo_wdat(20)             <= rx_sta_com;
+  rxfifo_wdat(19)             <= rx_sta_ack;
+  rxfifo_wdat(18 downto 16)   <= rx_sta_cod;
+  rxfifo_wdat(15 downto  8)   <= rx_sta_tag;
+  rxfifo_wdat( 7 downto  0)   <= rx_sta_dat;
   rxfifo_rrdy                 <= gpi_vld when (gpi_adr(2) = '1') else '0';
 
   gpi_dat                     <= rreg_C  when (gpi_adr(2) = '1') else rreg_8;
 
-  rreg_8(0)                   <= not txfifo_remp;
+  rreg_8(0)                   <= txfifo_wful;
 
-  rreg_C(9 downto 0)          <= rxfifo_rdat;
-  rreg_C(10)                  <= rxfifo_rvld;
+  rreg_C(20 downto 0)         <= rxfifo_rdat;
+  rreg_C(23)                  <= rxfifo_rvld;
 
   u_gpio : IM_BRG_AXI4S_GPIO
   generic map(
@@ -265,17 +276,18 @@ begin
   u_txfifo : IM_FIFO_SYNC
   generic map(
     G_WR_DAT_WIDTH            => txfifo_wdat'length,
-    G_WR_DPT                  => 1024,
+    G_WR_DPT                  => G_BUF_DPT,
+    G_WR_PFL_TH               => G_BUF_FULL,
     G_RD_DAT_WIDTH            => txfifo_rdat'length
   )
   port map(
     i_wr_vld                  => txfifo_wvld,
     i_wr_dat                  => txfifo_wdat,
+    o_wr_pfl                  => txfifo_wful,
 
     o_rd_vld                  => txfifo_rvld,
     o_rd_dat                  => txfifo_rdat,
     i_rd_rdy                  => txfifo_rrdy,
-    o_rd_emp                  => txfifo_remp,
 
     i_rst                     => i_rst,
     i_clk                     => i_clk
@@ -284,8 +296,8 @@ begin
   u_tx : IM_BRG_I2CM_TX
   port map(
     i_cmd_vld                 => txfifo_rvld,
-    i_cmd_cod                 => txfifo_rdat(10 downto 8),
-    i_cmd_dat                 => txfifo_rdat(7 downto 0),
+    i_cmd_cod                 => txfifo_rdat(18 downto 16),
+    i_cmd_dat                 => txfifo_rdat( 7 downto  0),
     o_cmd_rdy                 => txfifo_rrdy,
 
     o_tx_vld                  => io_tx_vld,
@@ -323,16 +335,20 @@ begin
   u_rx : IM_BRG_I2CM_RX
   port map(
     i_cmd_vld                 => txfifo_rvld,
-    i_cmd_cod                 => txfifo_rdat(10 downto 8),
+    i_cmd_tag                 => txfifo_rdat(15 downto  8),
+    i_cmd_cod                 => txfifo_rdat(18 downto 16),
+    i_cmd_dat                 => txfifo_rdat( 7 downto  0),
     i_cmd_rdy                 => txfifo_rrdy,
 
     i_rx_scl                  => io_rx_scl,
     i_rx_sda                  => io_rx_sda,
 
     o_sta_vld                 => rx_sta_vld,
-    o_sta_rw                  => rx_sta_rw,
-    o_sta_ack                 => rx_sta_ack,
+    o_sta_tag                 => rx_sta_tag,
+    o_sta_cod                 => rx_sta_cod,
     o_sta_dat                 => rx_sta_dat,
+    o_sta_ack                 => rx_sta_ack,
+    o_sta_com                 => rx_sta_com,
 
     i_rst                     => i_rst,
     i_clk                     => i_clk
@@ -341,17 +357,18 @@ begin
   u_rxfifo : IM_FIFO_SYNC
   generic map(
     G_WR_DAT_WIDTH            => rxfifo_wdat'length,
-    G_WR_DPT                  => 1024,
+    G_WR_DPT                  => G_BUF_DPT,
+    G_WR_PFL_TH               => G_BUF_FULL,
     G_RD_DAT_WIDTH            => rxfifo_rdat'length
   )
   port map(
     i_wr_vld                  => rxfifo_wvld,
     i_wr_dat                  => rxfifo_wdat,
+    o_wr_pfl                  => open,
 
     o_rd_vld                  => rxfifo_rvld,
     o_rd_dat                  => rxfifo_rdat,
     i_rd_rdy                  => rxfifo_rrdy,
-    o_rd_emp                  => open,
 
     i_rst                     => i_rst,
     i_clk                     => i_clk
