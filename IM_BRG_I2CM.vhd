@@ -1,4 +1,4 @@
---Last Update 2026.06.10 by COOKIE
+--Last Update 2026.07.29 by COOKIE
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.std_logic_unsigned.all;
@@ -97,6 +97,9 @@ architecture RTL of IM_BRG_I2CM is
   end component;
 
   component IM_BRG_I2CM_TX
+  generic (
+    G_CLK_FREQ                : real--i_clk Frequency(MHz)
+  );
   port (
     --COMMAND IF
     i_cmd_vld                 : in  std_logic;
@@ -108,6 +111,7 @@ architecture RTL of IM_BRG_I2CM is
     -- 4:WRITE
     -- 5:READ WITH ACK
     -- 6:READ WITH NACK
+    -- 7:WAIT Xms
     i_cmd_dat                 : in  std_logic_vector( 7 downto 0);
     o_cmd_rdy                 : out std_logic;
     --To IO Module
@@ -294,6 +298,9 @@ begin
   );
 
   u_tx : IM_BRG_I2CM_TX
+  generic map(
+    G_CLK_FREQ                => G_CLK_FREQ
+  )
   port map(
     i_cmd_vld                 => txfifo_rvld,
     i_cmd_cod                 => txfifo_rdat(18 downto 16),

@@ -1,10 +1,13 @@
---Last Update 2026.04.03 by COOKIE
+--Last Update 2026.07.29 by COOKIE
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.std_logic_unsigned.all;
 use IEEE.std_logic_arith.all;
 
 entity IM_BRG_I2CM_TX is
+  generic (
+    G_CLK_FREQ                : real--i_clk Frequency(MHz)
+  );
   port (
     --COMMAND IF
     i_cmd_vld                 : in  std_logic;
@@ -16,6 +19,7 @@ entity IM_BRG_I2CM_TX is
     -- 4:WRITE
     -- 5:READ WITH ACK
     -- 6:READ WITH NACK
+    -- 7:WAIT Xms
     i_cmd_dat                 : in  std_logic_vector( 7 downto 0);
     o_cmd_rdy                 : out std_logic;
     --To IO Module
@@ -30,7 +34,11 @@ entity IM_BRG_I2CM_TX is
   );
 end IM_BRG_I2CM_TX;
 architecture RTL of IM_BRG_I2CM_TX is
+  constant WAIT_1MS_CNT       : integer := integer(G_CLK_FREQ * 1000.0) - 1;
+
   signal cmd_tsf              : boolean := FALSE;
+  signal wait_cntr            : integer range 0 to 255 := 0;
+  signal ms_cntr              : integer range 0 to WAIT_1MS_CNT := 0;
   signal tx_vld_sr            : std_logic_vector(11 downto 0) := (others => '0');
   signal tx_scl_sr            : std_logic_vector(11 downto 0) := (others => '0');
   signal tx_sda_sr            : std_logic_vector(11 downto 0) := (others => '0');
@@ -45,6 +53,15 @@ begin
       tx_vld_sr               <= tx_vld_sr(tx_vld_sr'high - 1 downto 0) & '0';
       tx_scl_sr               <= tx_scl_sr(tx_scl_sr'high - 1 downto 0) & '0';
       tx_sda_sr               <= tx_sda_sr(tx_sda_sr'high - 1 downto 0) & '0';
+    end if;
+
+    if    (wait_cntr /= 0) then
+      if    (ms_cntr = 0) then
+        wait_cntr             <= wait_cntr - 1;
+        ms_cntr               <= WAIT_1MS_CNT;
+      else
+        ms_cntr               <= ms_cntr - 1;
+      end if;
     end if;
 
     if    (cmd_tsf) then
@@ -78,15 +95,20 @@ begin
         tx_vld_sr             <= "111111111000";
         tx_scl_sr             <= "000000000000";
         tx_sda_sr             <= "111111111000";
+      elsif (i_cmd_cod = 7) then
+        -- 7:WAIT Xms
+        wait_cntr             <= conv_integer(i_cmd_dat);
+        ms_cntr               <= WAIT_1MS_CNT;
       end if;
     end if;
 
     if    (i_rst = '1') then
       tx_vld_sr               <= (others => '0');
+      wait_cntr               <= 0;
     end if;
   end if;
   end process;
-  o_cmd_rdy_buf               <= '1' when (tx_vld_sr(tx_vld_sr'high) = '0' and i_tx_prerdy = '1') else '0';
+  o_cmd_rdy_buf               <= '1' when (wait_cntr = 0 and tx_vld_sr(tx_vld_sr'high) = '0' and i_tx_prerdy = '1') else '0';
 
   o_cmd_rdy                   <= o_cmd_rdy_buf;
   o_tx_vld                    <= tx_vld_sr(tx_vld_sr'high);
